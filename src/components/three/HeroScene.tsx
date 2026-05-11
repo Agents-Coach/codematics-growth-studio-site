@@ -1,69 +1,107 @@
 "use client";
 
 import { useRef, useMemo } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { Points, PointMaterial, Line } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 
-// Agent node positions (spherical distribution)
 const NODE_POSITIONS = [
-  [2, 0.5, 0],
-  [-1.5, 1.2, 1],
-  [1, -1, 1.5],
-  [-2, -0.5, 0.5],
-  [0.5, 1.8, -1],
-  [-0.8, -1.5, -1.2],
+  [2.2, 0.3, 0],
+  [-1.8, 1.0, 1.2],
+  [1.0, -0.8, 1.6],
+  [-2.2, -0.3, 0.6],
+  [0.6, 1.6, -1.2],
+  [-0.8, -1.3, -1.4],
 ];
 
 const NODE_COLORS = [
-  "#10b981", // emerald-500
-  "#34d399", // emerald-400
-  "#6ee7b7", // emerald-300
-  "#a1a1aa", // zinc-400
-  "#fafafa", // white
-  "#d4d4d8", // zinc-300
+  "#10b981", "#34d399", "#6ee7b7", "#a1a1aa", "#fafafa", "#d4d4d8",
 ];
 
-function CentralSphere() {
+function MorphingCore() {
   const meshRef = useRef<THREE.Mesh>(null);
+  const wireRef = useRef<THREE.Mesh>(null);
   const glowRef = useRef<THREE.Mesh>(null);
+  const timeRef = useRef(0);
 
   useFrame(({ clock }) => {
+    timeRef.current = clock.getElapsedTime();
+    const t = timeRef.current;
+
     if (meshRef.current) {
-      meshRef.current.rotation.y = clock.getElapsedTime() * 0.15;
+      // Morph between icosahedron and sphere
+      const morph = Math.sin(t * 0.3) * 0.5 + 0.5;
+      const geo = meshRef.current.geometry as THREE.IcosahedronGeometry;
+      const pos = geo.attributes.position;
+
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const z = pos.getZ(i);
+        const len = Math.sqrt(x * x + y * y + z * z);
+        const target = 0.55 + morph * 0.1;
+        const current = len;
+        const newLen = current + (target - current) * 0.02;
+        pos.setXYZ(i, (x / current) * newLen, (y / current) * newLen, (z / current) * newLen);
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+
+      meshRef.current.rotation.y = t * 0.12;
+      meshRef.current.rotation.x = Math.sin(t * 0.15) * 0.1;
     }
+
+    if (wireRef.current) {
+      wireRef.current.rotation.y = -t * 0.08;
+      wireRef.current.rotation.z = t * 0.05;
+    }
+
     if (glowRef.current) {
-      const scale = 1 + Math.sin(clock.getElapsedTime() * 1.5) * 0.05;
-      glowRef.current.scale.setScalar(scale);
+      const pulse = 0.7 + Math.sin(t * 1.5) * 0.15;
+      glowRef.current.scale.setScalar(pulse);
     }
   });
 
   return (
     <group>
-      {/* Glow layer */}
+      {/* Outer glow */}
       <mesh ref={glowRef}>
-        <sphereGeometry args={[0.8, 16, 16]} />
-        <meshBasicMaterial color="#10b981" transparent opacity={0.08} />
+        <sphereGeometry args={[0.9, 16, 16]} />
+        <meshBasicMaterial color="#10b981" transparent opacity={0.04} />
       </mesh>
-      {/* Core sphere */}
+
+      {/* Wireframe shell */}
+      <mesh ref={wireRef}>
+        <icosahedronGeometry args={[0.75, 1]} />
+        <meshStandardMaterial
+          color="#10b981"
+          wireframe
+          transparent
+          opacity={0.12}
+        />
+      </mesh>
+
+      {/* Core solid */}
       <mesh ref={meshRef}>
-        <sphereGeometry args={[0.5, 32, 32]} />
+        <icosahedronGeometry args={[0.55, 2]} />
         <meshStandardMaterial
           color="#10b981"
           emissive="#10b981"
-          emissiveIntensity={0.5}
-          roughness={0.3}
-          metalness={0.5}
+          emissiveIntensity={0.6}
+          roughness={0.15}
+          metalness={0.8}
         />
       </mesh>
-      {/* Inner ring */}
+
+      {/* Inner ring 1 */}
       <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.7, 0.015, 8, 64]} />
-        <meshStandardMaterial color="#34d399" emissive="#34d399" emissiveIntensity={0.3} />
+        <torusGeometry args={[0.85, 0.008, 6, 80]} />
+        <meshStandardMaterial color="#34d399" emissive="#34d399" emissiveIntensity={0.4} />
       </mesh>
-      <mesh rotation={[0, 0, Math.PI / 4]}>
-        <torusGeometry args={[0.7, 0.01, 8, 64]} />
-        <meshStandardMaterial color="#34d399" emissive="#34d399" emissiveIntensity={0.2} transparent opacity={0.5} />
+
+      {/* Inner ring 2 */}
+      <mesh rotation={[0, Math.PI / 3, Math.PI / 6]}>
+        <torusGeometry args={[0.85, 0.005, 6, 80]} />
+        <meshStandardMaterial color="#34d399" emissive="#34d399" emissiveIntensity={0.25} transparent opacity={0.6} />
       </mesh>
     </group>
   );
@@ -73,139 +111,134 @@ function AgentNode({ position, color, index }: { position: number[]; color: stri
   const meshRef = useRef<THREE.Mesh>(null);
 
   useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
     if (meshRef.current) {
-      const t = clock.getElapsedTime() * 0.3 + index * 1.2;
-      meshRef.current.position.y = position[1] + Math.sin(t) * 0.15;
-      meshRef.current.rotation.y = clock.getElapsedTime() * 0.4 + index;
+      const floatY = Math.sin(t * 0.5 + index * 1.3) * 0.12;
+      meshRef.current.position.y = position[1] + floatY;
+      meshRef.current.rotation.y = t * 0.35 + index;
+      meshRef.current.rotation.x = t * 0.2 + index * 0.5;
+
+      const pulse = 0.9 + Math.sin(t * 2 + index) * 0.1;
+      meshRef.current.scale.setScalar(pulse);
     }
   });
 
   return (
     <mesh ref={meshRef} position={position as [number, number, number]}>
-      <sphereGeometry args={[0.12, 16, 16]} />
+      <octahedronGeometry args={[0.1, 0]} />
       <meshStandardMaterial
         color={color}
         emissive={color}
-        emissiveIntensity={0.4}
-        roughness={0.2}
-        metalness={0.6}
+        emissiveIntensity={0.5}
+        roughness={0.1}
+        metalness={0.9}
       />
     </mesh>
   );
 }
 
 function Connections() {
-  const linesRef = useRef<THREE.Group>(null);
+  const groupRef = useRef<THREE.Group>(null);
+
+  const lines = useMemo(() => {
+    return NODE_POSITIONS.map((pos) => ({
+      start: new THREE.Vector3(0, 0, 0),
+      end: new THREE.Vector3(pos[0], pos[1], pos[2]),
+    }));
+  }, []);
 
   useFrame(({ clock }) => {
-    if (linesRef.current) {
-      linesRef.current.rotation.y = clock.getElapsedTime() * 0.08;
+    if (groupRef.current) {
+      groupRef.current.rotation.y = clock.getElapsedTime() * 0.06;
     }
   });
 
-  const lineGeometries = useMemo(() => {
-    return NODE_POSITIONS.map((pos) => {
-      const points = [new THREE.Vector3(0, 0, 0), new THREE.Vector3(pos[0], pos[1], pos[2])];
-      return new THREE.BufferGeometry().setFromPoints(points);
-    });
-  }, []);
-
   return (
-    <group ref={linesRef}>
-      {lineGeometries.map((geo, i) => {
-        const pos1 = geo.attributes.position.array as Float32Array;
+    <group ref={groupRef}>
+      {lines.map((line, i) => {
+        const dir = new THREE.Vector3().subVectors(line.end, line.start);
+        const len = dir.length();
+        const mid = new THREE.Vector3().addVectors(line.start, line.end).multiplyScalar(0.5);
+
         return (
-          <Line
-            key={i}
-            points={[
-              [pos1[0], pos1[1], pos1[2]],
-              [pos1[3], pos1[4], pos1[5]],
-            ]}
-            color="#10b981"
-            transparent
-            opacity={0.15}
-            lineWidth={0.5}
-          />
+          <mesh key={i} position={mid.toArray() as [number, number, number]}>
+            <cylinderGeometry args={[0.003, 0.003, len, 4]} />
+            <meshStandardMaterial
+              color="#10b981"
+              transparent
+              opacity={0.1 + Math.sin(i) * 0.05}
+            />
+          </mesh>
         );
       })}
     </group>
   );
 }
 
-function Particles({ count = 400 }: { count?: number }) {
+function Particles({ count = 300 }: { count?: number }) {
+  const ref = useRef<THREE.Points>(null);
+
   const positions = useMemo(() => {
     const arr = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
-      arr[i * 3] = (Math.random() - 0.5) * 12;
-      arr[i * 3 + 1] = (Math.random() - 0.5) * 8;
-      arr[i * 3 + 2] = (Math.random() - 0.5) * 8;
+      arr[i * 3] = (Math.random() - 0.5) * 15;
+      arr[i * 3 + 1] = (Math.random() - 0.5) * 10;
+      arr[i * 3 + 2] = (Math.random() - 0.5) * 10;
     }
     return arr;
   }, [count]);
 
+  useFrame(({ clock }) => {
+    if (ref.current) {
+      ref.current.rotation.y = clock.getElapsedTime() * 0.02;
+      ref.current.rotation.x = clock.getElapsedTime() * 0.008;
+    }
+  });
+
   return (
-    <Points positions={positions} stride={3} frustumCulled={false}>
-      <PointMaterial
-        transparent
+    <points ref={ref}>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          args={[positions, 3]}
+        />
+      </bufferGeometry>
+      <pointsMaterial
+        size={0.02}
         color="#3f3f46"
-        size={0.025}
-        sizeAttenuation={true}
-        depthWrite={false}
+        transparent
+        opacity={0.6}
+        sizeAttenuation
       />
-    </Points>
+    </points>
   );
 }
 
 function Scene() {
-  const groupRef = useRef<THREE.Group>(null);
-  const { viewport } = useThree();
-
-  useFrame(({ clock }) => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y = clock.getElapsedTime() * 0.05;
-    }
-  });
-
-  const isMobile = viewport.width < 5;
-
   return (
     <>
-      {/* Ambient light */}
-      <ambientLight intensity={0.3} />
+      <ambientLight intensity={0.4} />
+      <directionalLight position={[4, 4, 4]} intensity={1.2} color="#ffffff" />
+      <pointLight position={[-3, 2, -2]} intensity={0.8} color="#10b981" />
+      <pointLight position={[2, -2, 2]} intensity={0.4} color="#34d399" />
 
-      {/* Key light */}
-      <directionalLight position={[5, 5, 5]} intensity={1} color="#ffffff" />
+      <MorphingCore />
+      <Connections />
 
-      {/* Fill light */}
-      <pointLight position={[-3, 2, -2]} intensity={0.5} color="#10b981" />
+      {NODE_POSITIONS.map((pos, i) => (
+        <AgentNode key={i} position={pos} color={NODE_COLORS[i]} index={i} />
+      ))}
 
-      {/* Central structure */}
-      <group ref={groupRef}>
-        <CentralSphere />
-        <Connections />
-
-        {/* Agent nodes */}
-        {(isMobile ? NODE_POSITIONS.slice(0, 4) : NODE_POSITIONS).map((pos, i) => (
-          <AgentNode
-            key={i}
-            position={pos}
-            color={NODE_COLORS[i]}
-            index={i}
-          />
-        ))}
-      </group>
-
-      {/* Background particles */}
-      <Particles count={isMobile ? 200 : 400} />
+      <Particles count={300} />
     </>
   );
 }
 
 export default function HeroScene() {
   return (
-    <div className="absolute inset-0 -z-10">
+    <div className="absolute inset-0 -z-10 overflow-hidden">
       <Canvas
-        camera={{ position: [0, 0, 5], fov: 55 }}
+        camera={{ position: [0, 0, 5.5], fov: 50 }}
         dpr={[1, 1.5]}
         gl={{ antialias: true, alpha: true }}
         style={{ background: "transparent" }}
