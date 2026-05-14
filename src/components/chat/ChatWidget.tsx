@@ -56,7 +56,7 @@ export default function ChatWidget({
   themeColor = "#10b981",
   position = "bottom-right",
 }: ChatWidgetProps) {
-  const baseUrl = relayUrl || process.env.NEXT_PUBLIC_RELAY_URL || "http://localhost:8080";
+  const baseUrl = relayUrl || "https://chat.codematics.ai";
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
